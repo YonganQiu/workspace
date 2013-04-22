@@ -1,0 +1,6 @@
+*/gen
+*/bin
+*/obj
+*/project.properties
+*/.settings
+GetPictureFromFrameBuffer/libs
