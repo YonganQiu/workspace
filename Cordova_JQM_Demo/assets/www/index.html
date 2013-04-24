@@ -1,0 +1,42 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-type" content="text/html; charset=utf-8">
+    <title>Minimal AppLaud App</title>
+
+	<link rel="stylesheet"  href="css/jquery.mobile-1.2.0.css" />
+	  <script type="text/javascript" charset="utf-8" src="js/jquery-1.8.3.js"></script>
+	  <script type="text/javascript" charset="utf-8" src="js/jquery.mobile-1.2.0.js"></script>
+	  <script type="text/javascript" charset="utf-8" src="js/cordova.android.js"></script>
+	  <script type="text/javascript" charset="utf-8">
+      
+        var onDeviceReady = function() {
+            document.getElementById("devready").innerHTML = "OnDeviceReady fired.";
+        };
+
+        function init() {
+            document.addEventListener("deviceready", onDeviceReady, true);
+        }   
+</script>  
+
+  </head>
+  <body onload="init();" id="stage" class="theme">
+	<div data-role="page">  
+	    <div data-role="header">  
+	        <h1>Form Demo</h1>  
+	    </div>  
+	    <div data-role="content">  
+	        <form action="echo.cfm" method="post">  
+	        <div data-role="fieldcontain">  
+	            <label for="name">姓名:</label>  
+	            <input type="search" name="name" id="name" value=""  />  
+	        </div>      
+	        <div data-role="fieldcontain">  
+	            <input type="submit" name="submit" value="搜索"  />  
+	        </div>      
+	        </form>  
+	    </div>  
+	</div>  
+  </body>
+</html>
