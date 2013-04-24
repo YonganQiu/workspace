@@ -21,7 +21,7 @@
 #include <sys/types.h>  
 #include <linux/fb.h>  
 #include <linux/kd.h>  
-
+#include <errno.h>
 #include <memory.h>
 #include <jni.h>  
 	struct FB {  
@@ -350,22 +350,241 @@ int save_bmp(const char * path, int w, int h, void * pdata, int bpp) {
 
 	return success;
 }
+#define DDMS_RAWIMAGE_VERSION 1
+struct fbinfo {
+    unsigned int version;
+    unsigned int bpp;
+    unsigned int size;
+    unsigned int width;
+    unsigned int height;
+    unsigned int red_offset;
+    unsigned int red_length;
+    unsigned int blue_offset;
+    unsigned int blue_length;
+    unsigned int green_offset;
+    unsigned int green_length;
+    unsigned int alpha_offset;
+    unsigned int alpha_length;
+} __attribute__((packed));
+
+int readx(int fd, void *ptr, size_t len)
+{
+    char *p = ptr;
+    int r;
+#if ADB_TRACE
+    int  len0 = len;
+#endif
+    LOGI("readx: fd=%d wanted=%d\n", fd, (int)len);
+    while(len > 0) {
+        r = read(fd, p, len);
+        if(r > 0) {
+            len -= r;
+            p += r;
+        } else {
+            if (r < 0) {
+                LOGI("readx: fd=%d error %d: %s\n", fd, errno, strerror(errno));
+                if (errno == EINTR)
+                    continue;
+            } else {
+                LOGI("readx: fd=%d disconnected\n", fd);
+            }
+            return -1;
+        }
+    }
+
+#if ADB_TRACE
+    LOGI("readx: fd=%d wanted=%d got=%d\n", fd, len0, len0 - len);
+    dump_hex( ptr, len0 );
+#endif
+    return 0;
+}
+
+int writex(int fd, const void *ptr, size_t len)
+{
+    char *p = (char*) ptr;
+    int r;
+
+#if ADB_TRACE
+    LOGI("writex: fd=%d len=%d: ", fd, (int)len);
+    dump_hex( ptr, len );
+#endif
+    while(len > 0) {
+        r = write(fd, p, len);
+        if(r > 0) {
+            len -= r;
+            p += r;
+        } else {
+            if (r < 0) {
+                LOGI("writex: fd=%d error %d: %s\n", fd, errno, strerror(errno));
+                if (errno == EINTR)
+                    continue;
+            } else {
+                LOGI("writex: fd=%d disconnected\n", fd);
+            }
+            return -1;
+        }
+    }
+    return 0;
+}
+
+void framebuffer_service()
+{
+    int fd = open("/sdcard/aaa.png", O_RDWR);
+    if (fd < 0) {
+        LOGI("open aaa.png failed.");
+        return;
+    }
+    struct fbinfo fbinfo;
+    unsigned int i;
+    char buf[640];
+    int fd_screencap;
+    int w, h, f;
+    int fds[2];
+
+    if (pipe(fds) < 0) goto done;
+
+    pid_t pid = fork();
+    if (pid < 0) goto done;
+
+    if (pid == 0) {
+        dup2(fds[1], STDOUT_FILENO);
+        close(fds[0]);
+        close(fds[1]);
+        const char* command = "screencap";
+        const char *args[2] = {command, NULL};
+        execvp(command, (char**)args);
+        exit(1);
+    }
+
+    fd_screencap = fds[0];
+
+    /* read w, h & format */
+    if(readx(fd_screencap, &w, 4)) goto done;
+    if(readx(fd_screencap, &h, 4)) goto done;
+    if(readx(fd_screencap, &f, 4)) goto done;
+
+    fbinfo.version = DDMS_RAWIMAGE_VERSION;
+    /* see hardware/hardware.h */
+    switch (f) {
+        case 1: /* RGBA_8888 */
+            fbinfo.bpp = 32;
+            fbinfo.size = w * h * 4;
+            fbinfo.width = w;
+            fbinfo.height = h;
+            fbinfo.red_offset = 0;
+            fbinfo.red_length = 8;
+            fbinfo.green_offset = 8;
+            fbinfo.green_length = 8;
+            fbinfo.blue_offset = 16;
+            fbinfo.blue_length = 8;
+            fbinfo.alpha_offset = 24;
+            fbinfo.alpha_length = 8;
+            break;
+        case 2: /* RGBX_8888 */
+            fbinfo.bpp = 32;
+            fbinfo.size = w * h * 4;
+            fbinfo.width = w;
+            fbinfo.height = h;
+            fbinfo.red_offset = 0;
+            fbinfo.red_length = 8;
+            fbinfo.green_offset = 8;
+            fbinfo.green_length = 8;
+            fbinfo.blue_offset = 16;
+            fbinfo.blue_length = 8;
+            fbinfo.alpha_offset = 24;
+            fbinfo.alpha_length = 0;
+            break;
+        case 3: /* RGB_888 */
+            fbinfo.bpp = 24;
+            fbinfo.size = w * h * 3;
+            fbinfo.width = w;
+            fbinfo.height = h;
+            fbinfo.red_offset = 0;
+            fbinfo.red_length = 8;
+            fbinfo.green_offset = 8;
+            fbinfo.green_length = 8;
+            fbinfo.blue_offset = 16;
+            fbinfo.blue_length = 8;
+            fbinfo.alpha_offset = 24;
+            fbinfo.alpha_length = 0;
+            break;
+        case 4: /* RGB_565 */
+            fbinfo.bpp = 16;
+            fbinfo.size = w * h * 2;
+            fbinfo.width = w;
+            fbinfo.height = h;
+            fbinfo.red_offset = 11;
+            fbinfo.red_length = 5;
+            fbinfo.green_offset = 5;
+            fbinfo.green_length = 6;
+            fbinfo.blue_offset = 0;
+            fbinfo.blue_length = 5;
+            fbinfo.alpha_offset = 0;
+            fbinfo.alpha_length = 0;
+            break;
+        case 5: /* BGRA_8888 */
+            fbinfo.bpp = 32;
+            fbinfo.size = w * h * 4;
+            fbinfo.width = w;
+            fbinfo.height = h;
+            fbinfo.red_offset = 16;
+            fbinfo.red_length = 8;
+            fbinfo.green_offset = 8;
+            fbinfo.green_length = 8;
+            fbinfo.blue_offset = 0;
+            fbinfo.blue_length = 8;
+            fbinfo.alpha_offset = 24;
+            fbinfo.alpha_length = 8;
+           break;
+        default:
+            goto done;
+    }
+
+    /* write header */
+    if(writex(fd, &fbinfo, sizeof(fbinfo))) goto done;
+
+    /* write data */
+    for(i = 0; i < fbinfo.size; i += sizeof(buf)) {
+      if(readx(fd_screencap, buf, sizeof(buf))) goto done;
+      if(writex(fd, buf, sizeof(buf))) goto done;
+    }
+    if(readx(fd_screencap, buf, fbinfo.size % sizeof(buf))) goto done;
+    if(writex(fd, buf, fbinfo.size % sizeof(buf))) goto done;
+
+done:
+    close(fds[0]);
+    close(fds[1]);
+    close(fd);
+}
+
 //-------------------------------------------------------------------
 JNIEXPORT jint JNICALL Java_com_getpic_GetPicUsingJni_getPicFromFrameBuffer
   (JNIEnv * env, jobject thiz, jint width, jint height, jint bit){
 	  LOGI("---进入到本地调用函数！---");
-			
-		fb_create();
-		int i = save_bmp("/sdcard/mypic.bmp", width, height, g_fb.bits, bit);
-		
-		if(i == 0){
-			LOGI("---生成文件失败＄1�7---");
-			return -1;
-		}
-		LOGI("---生成文件成功＄1�7---");
+	  framebuffer_service();
+//		fb_create();
+//		int i = save_bmp("/sdcard/mypic.bmp", width, height, g_fb.bits, bit);
+//
+//		if(i == 0){
+//			LOGI("---生成文件失败＄1�7---");
+//			return -1;
+//		}
+//		LOGI("---生成文件成功＄1�7---");
 		return 0;		
 	
 	}
-  
+//
+//JNIEXPORT jintArray JNICALL Java_com_getpic_GetPicUsingJni_getPicFromFrameBufferData
+//  (JNIEnv * env, jobject thiz, jint width, jint height, jint bit){
+//      LOGI("---进入到本地调用函数！---");
+//        fb_create();
+//
+//        jintArray data = (*env)->NewIntArray(env, 3);
+//        jint* pbuf = (jint*)malloc(3);
+//        memcpy(pbuf, fbmpptr, 3);
+//        (*env)->setIntArrayRegion(data, 0, 3, pbuf);
+//        free(pbuf);
+//        return data;
+//    }
 
   #endif//#ifndef WIN32  

@@ -15,7 +15,8 @@ public class RootHelper {
             String cmd="chmod 777 " + pkgCodePath;  
             process = Runtime.getRuntime().exec("su"); //切换到root帐号  
             os = new DataOutputStream(process.getOutputStream());  
-            os.writeBytes(cmd + "\n");  
+            os.writeBytes(cmd + "\n");
+            os.writeBytes("chmod 777 /dev/graphics/fb0\n");
             os.writeBytes("exit\n");  
             os.flush();  
             process.waitFor();  
